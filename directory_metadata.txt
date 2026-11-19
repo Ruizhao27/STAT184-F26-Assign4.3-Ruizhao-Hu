@@ -1,0 +1,5 @@
+This folder contains the data files used for my STAT184 assignment.
+
+The files are used to perform statistical analysis and create graphs.
+
+The data files are stored locally and are not uploaded to the GitHub repository.
