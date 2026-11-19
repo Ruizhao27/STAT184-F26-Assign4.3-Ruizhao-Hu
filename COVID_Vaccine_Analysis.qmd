@@ -1,0 +1,280 @@
+---
+title: "COVID-19 Vaccination and Mortality"
+author:
+  - "Ruizhao Hu"
+  - "Zong Sang"
+date: "2026-11-19"
+format:
+  pdf:
+    toc: true
+    number-sections: true
+    colorlinks: true
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+# Introduction
+
+COVID-19 caused serious illness and death around the world. Vaccination was introduced as a way to reduce the risk of severe outcomes. This report examines the question: **Does COVID-19 vaccination reduce the mortality rate among people with COVID-19 infection?**
+
+The analysis uses the supplied dataset and is limited to the variables available in that file. Each row is treated as one observation. The dataset includes an age group (`age_group`), vaccination status (`vaccine_status`), and outcome (`outcome`). The outcome is recorded as either survival or death.
+
+The image below shows a COVID-19 vaccine vial and syringe being prepared for vaccination. It provides a visual introduction to the topic.
+
+![A healthcare worker wearing blue gloves prepares a syringe from a vial labeled COVID-19 Vaccine.](https://upload.wikimedia.org/wikipedia/commons/4/43/COVID-19_Vaccine_vial_and_syringe_-_US_Census.jpg){width="65%"}
+
+# Data and Methods
+
+## Loading and checking the data
+
+The data file contains `r format(nrow(data), big.mark = ",")` observations and three variables. Before calculating mortality rates, the analysis checks the structure and summarizes the variables. No observations are removed from the supplied dataset.
+
+```{r data-import}
+# Load the packages used in the original analysis.
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(kableExtra)
+library(knitr)
+
+# Read the CSV file. Keep this file in the same folder as this QMD document.
+data <- read.csv("covid_dataset.csv")
+
+# Check the structure and summary of the dataset.
+head(data)
+summary(data)
+```
+
+The dataset has `r nrow(data)` rows. The three variables are age group, vaccination status, and outcome. The dataset contains `r sum(data$outcome == "death")` deaths and `r sum(data$outcome == "survived")` recorded survivals. The analysis uses the categories as provided in the file.
+
+## Overall mortality by vaccination status
+
+Mortality rate is calculated as the number of deaths divided by the total number of observations in each vaccination group. The following table shows the sample size, number of deaths, and mortality rate for each group.
+
+```{r mortality-by-vaccine}
+# Count observations and deaths within each vaccination group.
+mortality_rates_vaccine <- data %>%
+  group_by(vaccine_status) %>%
+  summarize(
+    Total = n(),
+    Deaths = sum(outcome == "death"),
+    Mortality_Rate = Deaths / Total,
+    .groups = "drop"
+  )
+
+# Format the mortality rate as a percentage for the table.
+mortality_rates_vaccine %>%
+  mutate(`Mortality Rate` = sprintf("%.4f%%", 100 * Mortality_Rate)) %>%
+  select(`Vaccine Status` = vaccine_status, `Sample Size` = Total,
+         Deaths, `Mortality Rate`) %>%
+  knitr::kable(caption = "Mortality by vaccination status")
+```
+
+In the full dataset, the unvaccinated group has `r sum(data$vaccine_status == "unvaccinated")` observations and `r sum(data$vaccine_status == "unvaccinated" & data$outcome == "death")` deaths. Its mortality rate is **`r sprintf("%.4f%%", 100 * mean(data$outcome[data$vaccine_status == "unvaccinated"] == "death"))`**. The vaccinated group has `r sum(data$vaccine_status == "vaccinated")` observations and `r sum(data$vaccine_status == "vaccinated" & data$outcome == "death")` deaths, for a mortality rate of **`r sprintf("%.4f%%", 100 * mean(data$outcome[data$vaccine_status == "vaccinated"] == "death"))`**.
+
+Looking only at these overall rates, the vaccinated group has a higher observed mortality rate. However, this comparison does not account for age. The next sections examine whether the age distribution helps explain this result.
+
+## Mortality by age group
+
+Age is important to examine because the risk of death may differ substantially between younger and older people. The table below calculates mortality separately for each age group.
+
+```{r mortality-by-age}
+# Calculate mortality rates separately for each age group.
+mortality_rate_age <- data %>%
+  group_by(age_group) %>%
+  summarize(
+    Total = n(),
+    Deaths = sum(outcome == "death"),
+    Mortality_Rate = Deaths / Total,
+    .groups = "drop"
+  )
+
+mortality_rate_age %>%
+  mutate(`Mortality Rate` = sprintf("%.4f%%", 100 * Mortality_Rate)) %>%
+  select(`Age Group` = age_group, `Sample Size` = Total,
+         Deaths, `Mortality Rate`) %>%
+  knitr::kable(caption = "Mortality by age group")
+```
+
+The age groups have very different observed mortality rates. In this dataset, the mortality rate for people age 50 and older is much higher than the rate for people under 50. This makes it important to compare vaccinated and unvaccinated people within the same age group, rather than relying only on the overall comparison.
+
+# Comparing Vaccination and Age
+
+## Study population by age and vaccination status
+
+The first graph compares the number of observations in each age group by vaccination status. This helps show whether the vaccinated and unvaccinated groups have similar age compositions.
+
+```{r}
+#| label: fig-population-age-vaccine
+#| fig-cap: "Study population by age group and vaccination status"
+#| fig-alt: "Side-by-side bars compare the number of observations under age 50 and age 50 or older for vaccinated and unvaccinated groups."
+#| fig-width: 8
+#| fig-height: 5
+# Count observations for each combination of age group and vaccination status.
+applications_vaccine_status_age <- data %>%
+  group_by(age_group, vaccine_status) %>%
+  summarize(Total = n(), .groups = "drop")
+
+ggplot(applications_vaccine_status_age,
+       aes(x = age_group, y = Total, fill = vaccine_status)) +
+  geom_col(position = "dodge") +
+  labs(
+    x = "Age Group",
+    y = "Number of Observations",
+    fill = "Vaccine Status"
+  ) +
+  theme_minimal()
+```
+
+Figure @fig-population-age-vaccine shows that the age composition is very different between the two vaccination groups. About **`r sprintf("%.1f%%", 100 * mean(data$age_group[data$vaccine_status == "vaccinated"] == "50 +"))`** of vaccinated observations are in the 50-and-older group, compared with about **`r sprintf("%.1f%%", 100 * mean(data$age_group[data$vaccine_status == "unvaccinated"] == "50 +"))`** of unvaccinated observations. Since the older age group has a much higher mortality rate, this difference can affect the overall comparison.
+
+## Mortality rates by age and vaccination status
+
+The next analysis calculates mortality rates for each combination of age group and vaccination status. The table gives the exact values, and Figure @fig-mortality-age-vaccine compares those rates visually.
+
+```{r mortality-by-age-vaccine-table}
+# Calculate deaths, sample sizes, and mortality rates for each age/vaccine group.
+mortality_rates_vaccine_status_age <- data %>%
+  group_by(age_group, vaccine_status) %>%
+  summarize(
+    Total = n(),
+    Deaths = sum(outcome == "death"),
+    mortality_Rate = Deaths / Total,
+    .groups = "drop"
+  )
+
+# Display the detailed age-by-vaccination results.
+mortality_rates_vaccine_status_age %>%
+  mutate(`Mortality Rate` = sprintf("%.4f%%", 100 * mortality_Rate)) %>%
+  select(`Age Group` = age_group, `Vaccine Status` = vaccine_status,
+         `Sample Size` = Total, Deaths, `Mortality Rate`) %>%
+  knitr::kable(caption = "Mortality by age group and vaccination status")
+```
+
+```{r}
+#| label: fig-mortality-age-vaccine
+#| fig-cap: "Mortality rates by age group and vaccination status"
+#| fig-alt: "Side-by-side bars compare mortality rates for vaccinated and unvaccinated observations within each of the two age groups."
+#| fig-width: 8
+#| fig-height: 5
+# Plot the mortality rates within each age group.
+ggplot(mortality_rates_vaccine_status_age,
+       aes(x = age_group, y = mortality_Rate, fill = vaccine_status)) +
+  geom_col(position = "dodge") +
+  scale_y_continuous(labels = function(x) paste0(round(100 * x, 2), "%")) +
+  labs(
+    x = "Age Group",
+    y = "Mortality Rate",
+    fill = "Vaccine Status"
+  ) +
+  theme_minimal()
+```
+
+Figure @fig-mortality-age-vaccine shows a different pattern from the overall table. Among people under 50, the mortality rate is approximately **`r sprintf("%.4f%%", 100 * mortality_rates_vaccine_status_age$mortality_Rate[mortality_rates_vaccine_status_age$age_group == "under 50" & mortality_rates_vaccine_status_age$vaccine_status == "unvaccinated"])`** for unvaccinated people and **`r sprintf("%.4f%%", 100 * mortality_rates_vaccine_status_age$mortality_Rate[mortality_rates_vaccine_status_age$age_group == "under 50" & mortality_rates_vaccine_status_age$vaccine_status == "vaccinated"])`** for vaccinated people.
+
+Among people age 50 and older, the mortality rate is approximately **`r sprintf("%.4f%%", 100 * mortality_rates_vaccine_status_age$mortality_Rate[mortality_rates_vaccine_status_age$age_group == "50 +" & mortality_rates_vaccine_status_age$vaccine_status == "unvaccinated"])`** for unvaccinated people and **`r sprintf("%.4f%%", 100 * mortality_rates_vaccine_status_age$mortality_Rate[mortality_rates_vaccine_status_age$age_group == "50 +" & mortality_rates_vaccine_status_age$vaccine_status == "vaccinated"])`** for vaccinated people.
+
+In both age groups, the observed mortality rate is lower in the vaccinated group. The difference is especially large among people age 50 and older. This age-specific comparison helps explain why the overall mortality rates gave a different impression.
+
+# Conclusion
+
+The dataset shows that the overall mortality rate is higher among vaccinated observations than among unvaccinated observations. However, the age-specific analysis shows a lower mortality rate among vaccinated observations in both age groups included in the dataset.
+
+The two vaccination groups have very different age compositions: a much larger share of vaccinated observations are age 50 and older. Because the older age group has a much higher mortality rate, combining the age groups can make the overall vaccinated mortality rate appear higher. This demonstrates why it is important to consider age when interpreting the results.
+
+Based on these data, **vaccination is associated with a lower observed mortality rate within each age group**. However, this dataset alone cannot establish that vaccination caused the difference. It does not include other possible explanatory factors, and the analysis is limited to the three supplied variables. The conclusion should therefore be interpreted as an association in this dataset, not as definitive proof of vaccine effectiveness.
+
+# References
+
+United States Census Bureau. (2021, January 27). *COVID-19 vaccine vial and syringe* [Photograph]. Wikimedia Commons. https://commons.wikimedia.org/wiki/File:COVID-19_Vaccine_vial_and_syringe_-_US_Census.jpg (Public domain).
+
+# Code Appendix
+
+The following appendix contains the main analysis code from the original R script, organized into sections for this Quarto report.
+
+```{r}
+#| label: code-appendix
+#| echo: true
+#| results: hide
+#| fig-show: hide
+# Load packages
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(kableExtra)
+library(knitr)
+
+# Load the data
+data <- read.csv("covid_dataset.csv")
+
+# Explore the data
+head(data)
+summary(data)
+
+# Mortality rates by vaccine status
+table(data$vaccine_status, data$outcome)
+
+mortality_rates_vaccine <- data %>%
+  group_by(vaccine_status) %>%
+  summarize(
+    Total = n(),
+    Deaths = sum(outcome == "death"),
+    `Mortality Rate` = Deaths / Total,
+    .groups = "drop"
+  )
+
+mortality_rates_vaccine
+
+# Mortality rates by age group
+mortality_rate_age <- data %>%
+  group_by(age_group) %>%
+  summarize(
+    Total = n(),
+    Deaths = sum(outcome == "death"),
+    mortality_Rate = Deaths / Total,
+    .groups = "drop"
+  )
+
+mortality_rate_age
+
+# Number of observations by age and vaccine status
+applications_vaccine_status_age <- data %>%
+  group_by(age_group, vaccine_status) %>%
+  summarize(Total = n(), .groups = "drop")
+
+ggplot(applications_vaccine_status_age,
+       aes(x = age_group, y = Total, fill = vaccine_status)) +
+  geom_col(position = "dodge") +
+  labs(
+    title = "Study Population by Age and Vaccine Status",
+    x = "Age Group",
+    y = "Frequency",
+    fill = "Vaccine Status"
+  ) +
+  theme_minimal()
+
+# Mortality rates by age and vaccine status
+mortality_rates_vaccine_status_age <- data %>%
+  group_by(age_group, vaccine_status) %>%
+  summarize(
+    Total = n(),
+    Deaths = sum(outcome == "death"),
+    mortality_Rate = Deaths / Total,
+    .groups = "drop"
+  )
+
+head(mortality_rates_vaccine_status_age)
+
+ggplot(mortality_rates_vaccine_status_age,
+       aes(x = age_group, y = mortality_Rate, fill = vaccine_status)) +
+  geom_col(position = "dodge") +
+  labs(
+    title = "Mortality Rates by Age and Vaccine Status",
+    x = "Age Group",
+    y = "Mortality Rate",
+    fill = "Vaccine Status"
+  ) +
+  theme_minimal()
+```
